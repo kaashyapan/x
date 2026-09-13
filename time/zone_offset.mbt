@@ -81,6 +81,12 @@ pub fn ZoneOffset::to_string(self : ZoneOffset) -> String {
 }
 
 ///|
+/// Returns the offset as a duration, negative west of UTC.
+pub fn ZoneOffset::to_duration(self : ZoneOffset) -> Duration raise {
+  Duration::of(seconds=self.seconds.to_int64())
+}
+
+///|
 /// RFC 3339 - Parse the offset from string e.g. "Z", "+08:00", "-05:30", etc.
 pub fn ZoneOffset::parse_str(str : StringView) -> ZoneOffset raise Error {
   lexmatch str with longest {
@@ -145,6 +151,10 @@ pub impl Eq for ZoneOffset with fn equal(self : ZoneOffset, other : ZoneOffset) 
 }
 
 ///|
+/// Compares two offsets, larger offsets first.
+///
+/// This matches `java.time.ZoneOffset::compare_to`: an offset of `+10:00` sorts
+/// before `+09:00`, which sorts before `Z`, and so on down to `-18:00`.
 pub impl Compare for ZoneOffset with fn compare(
   self : ZoneOffset,
   other : ZoneOffset,

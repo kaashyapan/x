@@ -19,7 +19,7 @@ struct PlainTime {
   minute : Int
   second : Int
   nanosecond : Int
-} derive(Eq, Compare, Debug)
+} derive(Debug)
 
 ///|
 /// Creates a PlainTime from the hour, minute, second and nanosecond.
@@ -122,6 +122,37 @@ pub impl FromJson for PlainTime with fn from_json(json, path) {
       raise JsonDecodeError(
         (path, "PlainTime::from_json: invalid plaintime string - \{s}"),
       )
+  }
+}
+
+///|
+pub impl Eq for PlainTime with fn equal(self : PlainTime, other : PlainTime) -> Bool {
+  Compare::compare(self, other) == 0
+}
+
+///|
+pub impl Compare for PlainTime with fn compare(
+  self : PlainTime,
+  other : PlainTime,
+) -> Int {
+  if self.hour > other.hour {
+    1
+  } else if self.hour < other.hour {
+    -1
+  } else if self.minute > other.minute {
+    1
+  } else if self.minute < other.minute {
+    -1
+  } else if self.second > other.second {
+    1
+  } else if self.second < other.second {
+    -1
+  } else if self.nanosecond > other.nanosecond {
+    1
+  } else if self.nanosecond < other.nanosecond {
+    -1
+  } else {
+    0
   }
 }
 

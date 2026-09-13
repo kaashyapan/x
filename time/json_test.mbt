@@ -170,3 +170,34 @@ test "json errors" {
     },
   )
 }
+
+///|
+test "ZonedDateTime zero-offset zone json roundtrip" {
+  // `to_string` renders a zero offset as `Z` and prefers the offset
+  // abbreviation for the bracketed part: this is the string that has to be
+  // readable back.
+  let zone = Zone::fixed_zone("Africa/Abidjan", 0)
+  let actual = @time.ZonedDateTime::of(2000, 1, 1, zone~)
+  let json = ToJson::to_json(actual)
+  debug_inspect(json, content="String(\"2000-01-01T00:00:00Z[UTC]\")")
+  let expected : ZonedDateTime = @json.from_json(json)
+  inspect(expected.to_string(), content="2000-01-01T00:00:00Z")
+  inspect(
+    expected.to_unix_second(),
+    content=actual.to_unix_second().to_string(),
+  )
+}
+
+///|
+test "ZonedDateTime nanosecond json roundtrip preserves fields" {
+  let actual = @time.ZonedDateTime::parse_str(
+    "2000-01-01T00:00:00.999999999+08:00[Asia/Shanghai]",
+  )
+  let json = ToJson::to_json(actual)
+  let expected : ZonedDateTime = @json.from_json(json)
+  inspect(expected.nanosecond(), content="999999999")
+  inspect(expected.zone(), content="Asia/Shanghai")
+  inspect(expected.offset(), content="+08:00")
+  inspect(expected.to_string(), content=actual.to_string())
+  assert_eq(actual, expected)
+}

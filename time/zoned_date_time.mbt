@@ -18,7 +18,7 @@ struct ZonedDateTime {
   datetime : PlainDateTime
   zone : Zone
   offset : ZoneOffset
-} derive(Debug, Eq, Compare)
+} derive(Debug)
 
 ///|
 /// Creates a ZonedDateTime from year, month, day, hour, minute, second and a time zone.
@@ -110,7 +110,7 @@ pub fn ZonedDateTime::to_string(self : ZonedDateTime) -> String {
   let buf = StringBuilder(size_hint=0)
   buf.write_string(self.datetime.to_string())
   buf.write_string(self.offset.to_string())
-  if self.zone != utc_zone {
+  if self.zone != utc_zone && self.zone.id != "" {
     buf.write_char('[')
     let abbrev = self.offset.abbreviation()
     if abbrev == "" {
@@ -130,52 +130,82 @@ pub impl @string.FromStr for ZonedDateTime with fn from_str(str) {
 
 ///|
 /// Parses a RFC 3339 string with an optional bracketed time zone id, like
-/// `2008-08-08T20:00:00Z`, `2008-08-08T20:00:00+08:00[Asia/Shanghai]` or
+/// `2008-08-08T20:00:00Z`, `2008-08-08T20:00:00Z[UTC]`,
+/// `2008-08-08T20:00:00+08:00[Asia/Shanghai]` or
 /// `2008-08-08T20:00:00.123456789+08:00[Asia/Shanghai]`.
 ///
-/// The bracketed id is represented as a fixed-offset zone built from the parsed
-/// offset. This function does not look up the IANA/TZData rules of the id.
+/// The offset is required. The bracketed id is represented as a fixed-offset
+/// zone built from the parsed offset; this function does not look up the
+/// IANA/TZData rules of the id. A value without a bracketed id carries a zone
+/// with an empty id.
 pub fn ZonedDateTime::parse_str(str : StringView) -> ZonedDateTime raise Error {
   guard str.length() >= 20 else { fail(invalid_zoned_date_time_err) }
-  // `YYYY-MM-DDTHH:MM:SS`, optionally followed by fractional seconds.
-  let mut date_time_end = 19
-  if str.code_unit_at(date_time_end) == '.' {
-    date_time_end = date_time_end + 1
-    let fraction_start = date_time_end
-    while date_time_end < str.length() &&
-          str.code_unit_at(date_time_end) >= '0' &&
-          str.code_unit_at(date_time_end) <= '9' {
-      date_time_end = date_time_end + 1
+  // `[-]YYYY-MM-DDTHH:MM:SS`, optionally followed by fractional seconds.
+  lexmatch str with longest {
+    // 2008-08-08T20:00:00Z, 2008-08-08T20:00:00.123456789Z
+    (re"^-?[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:\.]{8,}" as _plain_datetime) +
+    re"Z$" => {
+      let date_time = PlainDateTime::parse_str(_plain_datetime) catch {
+        _ => fail(invalid_zoned_date_time_err)
+      }
+      ZonedDateTime::{
+        datetime: date_time,
+        zone: utc_zone,
+        offset: utc_offset,
+      }
     }
-    guard date_time_end > fraction_start else {
-      fail(invalid_zoned_date_time_err)
+    // 2008-08-08T20:00:00Z[UTC], 2008-08-08T20:00:00.123456789Z[Asia/Shanghai]
+    (re"^-?[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:\.]{8,}" as _plain_datetime) +
+    (re"Z\[[^\[\]]+\]$" as _zone) => {
+      // `to_string` renders a zero offset as `Z` followed by the bracketed
+      // abbreviation, so `Z[...]` values have to be readable back.
+      let date_time = PlainDateTime::parse_str(_plain_datetime) catch {
+        _ => fail(invalid_zoned_date_time_err)
+      }
+      let zone = parse_zone(_zone, utc_offset)
+      ZonedDateTime::{ datetime: date_time, zone, offset: utc_offset, }
     }
-  }
-  let date_time = PlainDateTime::parse_str(
-    str.clamped_view(start=0, end=date_time_end),
-  ) catch {
+    // 2008-08-08T20:00:00.123456789+08:00, 2008-08-08T20:00:00+08:00
+    (re"^-?[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:\.]{8,}" as _plain_datetime) +
+    (re"[+\-:0-9]{6}$" as _zone_offset) => {
+      let date_time = PlainDateTime::parse_str(_plain_datetime) catch {
+        _ => fail(invalid_zoned_date_time_err)
+      }
+      let offset = ZoneOffset::parse_str(_zone_offset) catch {
+        _ => fail(invalid_zoned_date_time_err)
+      }
+      // The parsed offset is the only offset of the zone, so calculations do
+      // not shift the instant. The empty id marks a value without a bracketed
+      // zone id.
+      let zone = Zone::fixed_zone("", offset.seconds())
+      ZonedDateTime::{ datetime: date_time, zone, offset, }
+    }
+    // 2008-08-08T20:00:00.123456789+08:00[Asia/Shanghai], 2026-09-12T14:30:00-05:00[America/New_York]
+    (re"^-?[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:\.]{8,}" as _plain_datetime) +
+    (re"[+\-:0-9]{6}" as _zone_offset) +
+    (re"\[[^\[\]]+\]$" as _zone) => {
+      let date_time = PlainDateTime::parse_str(_plain_datetime) catch {
+        _ => fail(invalid_zoned_date_time_err)
+      }
+      let offset = ZoneOffset::parse_str(_zone_offset) catch {
+        _ => fail(invalid_zoned_date_time_err)
+      }
+      let zone = parse_zone(_zone, offset)
+      ZonedDateTime::{ datetime: date_time, zone, offset, }
+    }
     _ => fail(invalid_zoned_date_time_err)
   }
-  // `Z` or `+HH:MM` / `-HH:MM`.
-  let rest = str.clamped_view(start=date_time_end)
-  guard !rest.is_empty() else { fail(invalid_zoned_date_time_err) }
-  let offset_len : Int = if rest.code_unit_at(0) == 'Z' { 1 } else { 6 }
-  guard rest.length() >= offset_len else { fail(invalid_zoned_date_time_err) }
-  let offset = ZoneOffset::parse_str(rest.clamped_view(start=0, end=offset_len)) catch {
+}
+
+///|
+/// Parses a bracketed zone annotation like `[Asia/Shanghai]`, or the `Z[UTC]`
+/// form, into a fixed-offset zone built from `offset`.
+fn parse_zone(str : StringView, offset : ZoneOffset) -> Zone raise {
+  lexmatch str with longest {
+    re"^Z?\[" + (re"[^\[\]]{2,}" as zone_id) + re"\]$" =>
+      Zone::fixed_zone(zone_id.to_owned(), offset.seconds())
     _ => fail(invalid_zoned_date_time_err)
   }
-  // Optional `[Zone/Id]` suffix.
-  let zone_str = rest.clamped_view(start=offset_len)
-  let zone = if zone_str.is_empty() {
-    utc_zone
-  } else {
-    guard zone_str is ['[', .. zone_id, ']'] else {
-      fail(invalid_zoned_date_time_err)
-    }
-    guard !zone_id.is_empty() else { fail(invalid_zoned_date_time_err) }
-    Zone::fixed_zone(zone_id.to_owned(), offset.seconds)
-  }
-  ZonedDateTime::{ datetime: date_time, zone, offset, }
 }
 
 ///|
@@ -205,6 +235,40 @@ pub impl FromJson for ZonedDateTime with fn from_json(json, path) -> ZonedDateTi
       )
   }
   zdt
+}
+
+///|
+/// Two datetimes are equal when they denote the same instant; see `Compare`.
+pub impl Eq for ZonedDateTime with fn equal(
+  self : ZonedDateTime,
+  other : ZonedDateTime,
+) -> Bool {
+  Compare::compare(self, other) == 0
+}
+
+///|
+/// Compares two datetimes by the instant they denote.
+///
+/// The zone and offset are not part of the comparison: two datetimes denoting
+/// the same instant are equal even when they are in different zones.
+/// Nanoseconds are significant.
+pub impl Compare for ZonedDateTime with fn compare(
+  self : ZonedDateTime,
+  other : ZonedDateTime,
+) -> Int {
+  let self_second = self.to_unix_second()
+  let other_second = other.to_unix_second()
+  if self_second > other_second {
+    1
+  } else if self_second < other_second {
+    -1
+  } else if self.nanosecond() > other.nanosecond() {
+    1
+  } else if self.nanosecond() < other.nanosecond() {
+    -1
+  } else {
+    0
+  }
 }
 
 ///|
@@ -329,6 +393,9 @@ pub fn ZonedDateTime::nanosecond(self : ZonedDateTime) -> Int {
 
 ///|
 /// Returns the time zone of this datetime.
+///
+/// A datetime parsed from a string without a bracketed zone id carries a zone
+/// with an empty id.
 pub fn ZonedDateTime::zone(self : ZonedDateTime) -> Zone {
   self.zone
 }

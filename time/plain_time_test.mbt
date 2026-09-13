@@ -316,3 +316,20 @@ test "plain_time_from_json_errors" {
     _ => fail("unexpected error")
   }
 }
+
+///|
+test "compare" {
+  let base = @time.PlainTime::of(1, 2, 3, 4)
+  inspect(base == @time.PlainTime::of(1, 2, 3, 4), content="true")
+  inspect(base == @time.PlainTime::of(1, 2, 3, 5), content="false")
+  inspect(Compare::compare(base, @time.PlainTime::of(1, 2, 3, 4)), content="0")
+  // Every field participates in the comparison.
+  inspect(base < @time.PlainTime::of(2, 0, 0, 0), content="true")
+  inspect(base < @time.PlainTime::of(1, 3, 0, 0), content="true")
+  inspect(base < @time.PlainTime::of(1, 2, 4, 0), content="true")
+  inspect(base < @time.PlainTime::of(1, 2, 3, 5), content="true")
+  inspect(base > @time.PlainTime::of(1, 2, 3, 3), content="true")
+  inspect(base > @time.PlainTime::of(0, 59, 59, 999_999_999), content="true")
+  inspect(Compare::compare(base, @time.PlainTime::of(1, 2, 3, 5)), content="-1")
+  inspect(Compare::compare(@time.PlainTime::of(1, 2, 3, 5), base), content="1")
+}

@@ -61,6 +61,7 @@ test "utc" {
 
 ///|
 test "compare" {
+  // Like `java.time.ZoneOffset`, larger offsets sort first.
   let o1 = @time.ZoneOffset::from_seconds(10)
   let o2 = @time.ZoneOffset::from_seconds(-10)
   inspect(o1 > o2, content="false")
@@ -106,5 +107,23 @@ test "offset from_str" {
   inspect(
     (@string.FromStr::from_str("+05:30") : @time.ZoneOffset).seconds(),
     content="19800",
+  )
+}
+
+///|
+test "to_duration" {
+  inspect(@time.utc_offset.to_duration(), content="PT0S")
+  inspect(
+    @time.ZoneOffset::of(hours=5, minutes=30).to_duration(),
+    content="PT5H30M",
+  )
+  inspect(
+    @time.ZoneOffset::of(hours=-5, minutes=-30).to_duration(),
+    content="PT-5H-30M",
+  )
+  inspect(
+    @time.ZoneOffset::parse_str("-05:00").to_duration() ==
+    @time.Duration::of(hours=-5),
+    content="true",
   )
 }

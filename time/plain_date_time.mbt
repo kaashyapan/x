@@ -17,7 +17,7 @@
 struct PlainDateTime {
   date : PlainDate
   time : PlainTime
-} derive(Eq, Compare, Debug, ToJson, FromJson)
+} derive(Debug, ToJson, FromJson)
 
 ///|
 /// Creates a PlainDateTime from the year, month, day, hour, minute, second and nanosecond.
@@ -105,6 +105,32 @@ pub impl Show for PlainDateTime with fn output(
   logger : &Logger,
 ) -> Unit {
   logger.write_string(self.to_string())
+}
+
+///|
+pub impl Eq for PlainDateTime with fn equal(
+  self : PlainDateTime,
+  other : PlainDateTime,
+) -> Bool {
+  Compare::compare(self, other) == 0
+}
+
+///|
+pub impl Compare for PlainDateTime with fn compare(
+  self : PlainDateTime,
+  other : PlainDateTime,
+) -> Int {
+  if self.date > other.date {
+    1
+  } else if self.date < other.date {
+    -1
+  } else if self.time > other.time {
+    1
+  } else if self.time < other.time {
+    -1
+  } else {
+    0
+  }
 }
 
 ///|

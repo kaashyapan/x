@@ -389,3 +389,33 @@ test "from_str errors" {
     })
   }
 }
+
+///|
+test "compare" {
+  let base = @time.PlainDateTime::of(2000, 1, 1)
+  let one_second_later = @time.PlainDateTime::of(2000, 1, 1, second=1)
+  inspect(base == @time.PlainDateTime::of(2000, 1, 1), content="true")
+  inspect(base == one_second_later, content="false")
+  inspect(
+    Compare::compare(base, @time.PlainDateTime::of(2000, 1, 1)),
+    content="0",
+  )
+  // The same date orders by the time of day, in both directions.
+  inspect(Compare::compare(base, one_second_later), content="-1")
+  inspect(Compare::compare(one_second_later, base), content="1")
+  inspect(base < one_second_later, content="true")
+  inspect(base > one_second_later, content="false")
+  inspect(one_second_later > base, content="true")
+  inspect(one_second_later < base, content="false")
+  // Sub-second differences are ordered as well.
+  let one_nanosecond_later = @time.PlainDateTime::of(2000, 1, 1, nanosecond=1)
+  inspect(base < one_nanosecond_later, content="true")
+  inspect(Compare::compare(base, one_nanosecond_later), content="-1")
+  inspect(Compare::compare(one_nanosecond_later, base), content="1")
+  // The date part dominates the time part.
+  let next_day = @time.PlainDateTime::of(2000, 1, 2)
+  inspect(base < next_day, content="true")
+  inspect(next_day > one_second_later, content="true")
+  inspect(Compare::compare(base, next_day), content="-1")
+  inspect(Compare::compare(next_day, base), content="1")
+}

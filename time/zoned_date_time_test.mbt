@@ -475,7 +475,8 @@ test "parse_str errors" {
     "2000-01-01T00:00:00+05:30junk", "2000-01-01T00:00:00+05:30[Bad", "2000-01-01T00:00:00+05:30[]",
     "2000-01-01T00:00:00+05:30[Asia/Kolkata]extra", "2000-01-01T00:00:00.Z+05:30",
     "2000-01-01T00:00:00.1234567890+05:30", "2000-01-01 00:00:00Z", "2000-01-01T00:00:00+19:00",
-    "2000-13-01T00:00:00Z",
+    "2000-13-01T00:00:00Z", "2000-01-01T00:00:00+05:30Z", "2000-01-01T00:00:00[Asia/Shanghai]",
+    "2000-01-01T00:00:00Z[[Asia/Shanghai]]", "2000-01-01T00:00:00+05:30[[Asia/Shanghai]]",
   ]
   for s in invalid {
     @test.assert_raise(() => @time.ZonedDateTime::parse_str(s))
@@ -497,6 +498,22 @@ test "eq and compare" {
   inspect(a == c, content="false")
   inspect(a < c, content="true")
   inspect(c > a, content="true")
+  inspect(Compare::compare(a, b), content="0")
+  inspect(Compare::compare(a, c), content="-1")
+  inspect(Compare::compare(c, a), content="1")
+  // Values in different zones that denote the same instant are equal.
+  let same_instant = @time.ZonedDateTime::parse_str("2026-09-12T09:00:00Z")
+  inspect(same_instant == a, content="true")
+  inspect(Compare::compare(same_instant, a), content="0")
+  // Nanoseconds are significant.
+  let midnight = @time.ZonedDateTime::parse_str("2000-01-01T00:00:00Z")
+  let last_nanosecond = @time.ZonedDateTime::parse_str(
+    "2000-01-01T00:00:00.999999999Z",
+  )
+  inspect(midnight == last_nanosecond, content="false")
+  inspect(midnight < last_nanosecond, content="true")
+  inspect(Compare::compare(midnight, last_nanosecond), content="-1")
+  inspect(Compare::compare(last_nanosecond, midnight), content="1")
 }
 
 ///|
@@ -510,5 +527,64 @@ test "zdt from_str" {
       @string.FromStr::from_str("2026-09-12T14:30:00+05:30[Asia/Kolkata]") :
       @time.ZonedDateTime),
     content="2026-09-12T14:30:00+05:30[Asia/Kolkata]",
+  )
+}
+
+///|
+test "parse_str with Z and bracketed zone id" {
+  // `to_string` renders a zero offset as `Z` plus the bracketed abbreviation,
+  // so `Z[...]` values have to be readable back.
+  let utc = @time.ZonedDateTime::parse_str("2000-01-01T00:00:00Z[UTC]")
+  inspect(utc.zone(), content="UTC")
+  inspect(utc.offset(), content="Z")
+  inspect(utc.to_unix_second(), content="946684800")
+  inspect(utc.to_string(), content="2000-01-01T00:00:00Z")
+  let shanghai = @time.ZonedDateTime::parse_str(
+    "2000-01-01T00:00:00Z[Asia/Shanghai]",
+  )
+  inspect(shanghai.zone(), content="Asia/Shanghai")
+  inspect(shanghai.offset(), content="Z")
+  inspect(shanghai.to_unix_second(), content="946684800")
+}
+
+///|
+test "parse_str with an offset keeps the offset" {
+  let zdt = @time.ZonedDateTime::parse_str("2026-09-12T14:30:00+05:30")
+  // An offset-only value has no zone id ...
+  inspect(zdt.zone(), content="")
+  // ... and its offset survives a zero-length calculation.
+  let shifted = zdt.add_seconds(0L)
+  inspect(zdt.offset(), content="+05:30")
+  inspect(zdt.to_unix_second(), content="1789203600")
+  inspect(shifted.offset(), content="+05:30")
+  inspect(shifted.to_unix_second(), content="1789203600")
+  inspect(shifted.to_string(), content="2026-09-12T14:30:00+05:30")
+}
+
+///|
+// This test needs to be fixed after Tz Data implementation
+test "to_string of a zero-offset zone is parsable" {
+  let zone = @time.Zone::fixed_zone("Africa/Abidjan", 0)
+  let zdt = @time.ZonedDateTime::of(2000, 1, 1, zone~)
+  inspect(zdt.to_string(), content="2000-01-01T00:00:00Z[UTC]")
+  let reparsed = @time.ZonedDateTime::parse_str(zdt.to_string())
+  inspect(reparsed.to_unix_second(), content="946684800")
+  inspect(reparsed.to_string(), content="2000-01-01T00:00:00Z")
+}
+
+///|
+test "parse_str negative year roundtrip" {
+  let zdt = @time.ZonedDateTime::of(
+    -9999,
+    12,
+    31,
+    hour=23,
+    minute=59,
+    second=59,
+  )
+  inspect(zdt.to_string(), content="-9999-12-31T23:59:59Z")
+  inspect(
+    @time.ZonedDateTime::parse_str(zdt.to_string()).to_string(),
+    content="-9999-12-31T23:59:59Z",
   )
 }
